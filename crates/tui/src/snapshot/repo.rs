@@ -467,6 +467,34 @@ impl SnapshotRepo {
         Ok(removed)
     }
 
+    /// Keep only the latest `max_count` snapshots, dropping older ones.
+    /// Runs a lightweight gc to reclaim space. Returns the count removed.
+    pub fn prune_keep_last_n(&self, max_count: usize) -> io::Result<usize> {
+        let snapshots = self.list(usize::MAX)?;
+        if snapshots.len() <= max_count {
+            return Ok(0);
+        }
+        // snapshots are newest-first; keep the first `max_count`.
+        let survivor = &snapshots[max_count];
+        let removed = snapshots.len() - max_count;
+
+        let reset = run_git(
+            &self.git_dir,
+            &self.work_tree,
+            &["update-ref", "HEAD", survivor.id.as_str()],
+        )?;
+        if !reset.status.success() {
+            return Err(io_other(format!(
+                "git update-ref failed: {}",
+                String::from_utf8_lossy(&reset.stderr).trim()
+            )));
+        }
+
+        let _ = run_git(&self.git_dir, &self.work_tree, &["reflog", "expire", "--expire=now", "--all"]);
+        let _ = run_git(&self.git_dir, &self.work_tree, &["gc", "--prune=now", "--quiet"]);
+        Ok(removed)
+    }
+
     /// Drop unreachable loose objects left behind by interrupted or
     /// orphaned side-repo operations.
     pub fn prune_unreachable_objects(&self) -> io::Result<()> {
