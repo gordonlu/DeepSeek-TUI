@@ -6443,11 +6443,12 @@ fn push_keyboard_enhancement_flags<W: Write>(writer: &mut W) {
     // returns Unsupported on Windows (is_ansi_code_supported() == false), so
     // the ANSI escape is written directly on that platform. Modern Windows
     // terminals (VSCode integrated terminal, Windows Terminal ≥1.17) honour
-    // the kitty keyboard protocol; terminals that do not silently discard it.
+    // the kitty keyboard protocol but crossterm's event reader does not
+    // decode CSI u sequences on Windows (issue #1599). Write \033[>0u to
+    // probe the protocol without enabling any flags — Enter stays as \n.
     #[cfg(windows)]
     {
-        let flags = KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES.bits();
-        if let Err(err) = write!(writer, "\x1b[>{}u", flags).and_then(|()| writer.flush()) {
+        if let Err(err) = write!(writer, "\x1b[>0u").and_then(|()| writer.flush()) {
             tracing::debug!(
                 target: "kitty_keyboard",
                 ?err,
